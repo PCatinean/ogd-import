@@ -18,7 +18,7 @@ class SystemExitLoggingHandler(logging.Handler):
     exit_level = logging.ERROR
 
     def emit(self, record):
-        """Emit a record, call flush() depending on some criteria."""
+        """Quit the application if the record level is high."""
         if record.levelno >= self.exit_level:
             raise SystemExit(1)
 

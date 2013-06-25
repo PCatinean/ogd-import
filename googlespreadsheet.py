@@ -20,9 +20,29 @@ class GoogleSpreadsheet:
 				d[key] = entry.custom[key].text
 			rows.append(d)
 		return rows
+
+	def getRows(self, spreadsheet_id, worksheet_id=None):
+		if worksheet_id:
+			rows = self.gd_client.GetListFeed(spreadsheet_id, worksheet_id)
+		else:
+			rows = self.gd_client.GetListFeed(spreadsheet_id)
+		return self.formRows(rows)
 	
 	def listSpreadsheets(self, query=None):
-		"Return a dictionary with SpreadSheet names and Ids as key: val pair"
+		"Return a dictionary with tuples representing SpreadSheet names, their ids and child worksheet ids and names"
+		spreadsheet_data = {}		
 		feed = self.gd_client.GetSpreadsheetsFeed(query).entry
-		spreadsheet_ids = {entry.title.text: entry.id.text.rsplit('/',1)[1] for entry in feed}
-		return spreadsheet_ids
+		for spreadsheet in feed:
+			spreadsheet_id = spreadsheet.id.text.rsplit('/',1)[1]
+			spreadsheet_name = spreadsheet.title.text
+
+			spreadsheet_data[spreadsheet_name] = (spreadsheet_id, [])
+
+			worksheets = self.gd_client.GetWorksheetsFeed(spreadsheet_id).entry
+
+			for worksheet in worksheets:
+				worksheet_id = worksheet.id.text.rsplit('/',1)[1]
+				worksheet_name = worksheet.title.text
+				spreadsheet_data[spreadsheet_name][1].append((worksheet_name, worksheet_id))
+
+		return spreadsheet_data
