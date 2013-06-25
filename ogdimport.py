@@ -67,7 +67,7 @@ class OpenERP():
         self.execute = lambda *a: s.execute(database, self.uid, password, *a)
 
 
-class OGDPraser():
+class OGDParser():
 
     def __init__(self):
         #Parse CLI arguments
@@ -107,6 +107,7 @@ class OGDPraser():
         #OpenERP login
 
         try:
+            import pdb;pdb.set_trace()
             xmlrpc_addr = 'http://%s:%s/xmlrpc/object'%(oerp_host,oerp_port)
             logging.info("Attempting login to OpenERP server at '%s'..." % xmlrpc_addr)
             OpenERP = OpenERP(oerp_username, oerp_password, oerp_host, oerp_database, oerp_port)
