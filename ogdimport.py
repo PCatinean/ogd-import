@@ -71,9 +71,7 @@ class OpenERP():
         self.execute = lambda *a: s.execute(database, self.uid, password, *a)
 
     def get_res_id(self, obj_model, external_id):
-        """Verifies if there is a resource in the database using the external_id provided and returns the database_id
-           It is the reverse equivalent of get_external_reference from the orm
-        """
+        """Verifies if there is a resource in the database using the external_id provided and returns the database_id"""
 
         domain = [('name','=',external_id),('model','=',obj_model)]
         data_id = self.execute('ir.model.data','search',domain)
@@ -89,45 +87,49 @@ class OGDParser():
 
     def __init__(self):
         #Parse CLI arguments
-        parser = argparse.ArgumentParser()
-        group = parser.add_mutually_exclusive_group(required=True)
+        self.parser = argparse.ArgumentParser()
+        group = self.parser.add_mutually_exclusive_group(required=True)
 
-        group.add_argument("-l",'--list', action="store_true", help="List spreadsheets and their ids")
-        group.add_argument("-r","--resources", nargs="+", help="Resources to import, *NOTE: Priority is taken into consideration*")
+        group.add_argument("-l",'--list', action="store_true", help="List spreadsheets and ids")
+        group.add_argument("-r","--resources", nargs="+", help="Resources to import")
 
-        parser.add_argument("-e","--env", required=True, help="OpenERP environment")
-        parser.add_argument("-m","--magento", action="store_true", help="Add magento fields to import")
-        parser.add_argument("-u","--update", nargs="+", default=[], help="Update the following resources"),
+        self.parser.add_argument("-e","--env", required=True, help="OpenERP environment")
+        self.parser.add_argument("-m","--magento", action="store_true", help="Magento fields included")
+        self.parser.add_argument("-u","--update", nargs="+", default=[], help="Update resources"),
 
-        self.args = parser.parse_args()
+        self.args = self.parser.parse_args()
 
-        #Load configuration file
-
-        if not os.path.isfile('ogd_config.ini'):
-            logging.error("No such file 'ogd_config.ini'")
+    def read_config(self, config_file):
+        if not os.path.isfile(config_file):
+            logging.error("No such file '%s'" % config_file)
 
         config = ConfigParser.ConfigParser()
-        config.read('ogd_config.ini')
+        config.read(config_file)
 
         try:
-            oerp_host = config.get(self.args.env, 'openerp_host')
-            oerp_port = config.get(self.args.env, 'openerp_port')
-            oerp_database = config.get(self.args.env, 'openerp_database')
-            oerp_username = config.get(self.args.env, 'openerp_username')
-            oerp_password = config.get(self.args.env, 'openerp_password')
+            self.oerp_host = config.get(self.args.env, 'openerp_host')
+            self.oerp_port = config.get(self.args.env, 'openerp_port')
+            self.oerp_database = config.get(self.args.env, 'openerp_database')
+            self.oerp_username = config.get(self.args.env, 'openerp_username')
+            self.oerp_password = config.get(self.args.env, 'openerp_password')
 
-            drive_email = config.get(self.args.env, 'drive_email')
-            drive_password = config.get(self.args.env, 'drive_password')
+            self.drive_email = config.get(self.args.env, 'drive_email')
+            self.drive_password = config.get(self.args.env, 'drive_password')
 
         except Exception, e:
-            logging.error("Config file error (%s)" % e)
+            logging.error("Config file error (%s)" % e)        
+
+    def parse_arguments(self):
+        #Load configuration file
+
+        self.read_config('ogd_config.ini')
 
         #OpenERP login
 
         try:
-            xmlrpc_addr = 'http://%s:%s/xmlrpc/object'%(oerp_host,oerp_port)
+            xmlrpc_addr = 'http://%s:%s/xmlrpc/object'%(self.oerp_host,self.oerp_port)
             logging.info("Attempting login to OpenERP server at '%s'..." % xmlrpc_addr)
-            self.open_erp = OpenERP(oerp_username, oerp_password, oerp_host, oerp_database, oerp_port)
+            self.open_erp = OpenERP(self.oerp_username, self.oerp_password, self.oerp_host, self.oerp_database, self.oerp_port)
         except Exception, e:
             logging.error(e.strerror)
 
@@ -136,8 +138,8 @@ class OGDParser():
         #Login to Drive
 
         try:
-            logging.info("Attempting login to Google Drive with email '%s'..."%drive_email)
-            self.google_drive = GoogleSpreadsheet(drive_email,drive_password)
+            logging.info("Attempting login to Google Drive with email '%s'..."%self.drive_email)
+            self.google_drive = GoogleSpreadsheet(self.drive_email,self.drive_password)
         except Exception, e:
             logging.error("Google Drive: %s" % e.message)
 
@@ -165,9 +167,6 @@ class OGDParser():
 
                     self.parse_resource(res, rows)
                     
-                    #Get data from spreadsheet
-                    #Register function to handle data
-                    #Prase it
                 except Exception, e:
                     logging.error(e)
 

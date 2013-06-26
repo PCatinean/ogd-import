@@ -2,7 +2,7 @@ import ogdimport
 
 class CustomImport(ogdimport.OGDParser):
 
-	def import_categories(self, model, rows, prefix=''):
+	def import_categories(self, model, resource, rows, prefix=''):
 				
 	    for row in rows:
 	        res_id = self.open_erp.get_res_id(model,'%s' % (prefix+row['externalid']))
@@ -11,12 +11,8 @@ class CustomImport(ogdimport.OGDParser):
 	                'parent_id': self.open_erp.get_res_id(model, prefix + row['parentcategory'])
 	                }
 
-	        if args.magento:
-	            add_magento_vals('product.category',vals)
-
 	        if res_id:
-	            #FIXME! Please find a better, dynamic solution to this!
-	            if 'all' in args.update or 'product-categories' in args.update:
+	            if 'all' in args.update or resource in args.update:
 	                openERP('product.category','write',res_id,vals)
 	                logger().info("Updated product category %s"%row.custom['namede'].text)
 	            else:
@@ -25,7 +21,6 @@ class CustomImport(ogdimport.OGDParser):
 	        else:
 	            #Crete a new category if there is none with the specified external_id
 	            
-
 	            categ_id = openERP('product.category','create',vals)
 	            create_external_ref(prefix+row.custom['externalid'].text,'product.category',categ_id)
 
@@ -40,9 +35,11 @@ class CustomImport(ogdimport.OGDParser):
 	def parse_resource(self, resource, rows):
 		
 		if resource == 'products':
-			self.import_products(rows)
+			self.import_products('product.product', resource, rows)
 		elif resource == 'categories':
-			self.import_categories('product.category', rows)
+			self.import_categories('product.category', resource, rows)
 
 
-CustomImport()
+custom_import = CustomImport()
+
+custom_import.parse_arguments()
