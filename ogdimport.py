@@ -77,10 +77,28 @@ class OpenERP():
         data_id = self.execute('ir.model.data','search',domain)
         if data_id:
             res_dict = self.execute('ir.model.data','read',data_id[0],['res_id'])
-            return res_dict['res_id'] if res_dict else None
+            return res_dict['res_id'] if res_dict else False
+        return False
 
-        logging.warning("No such external_id '%s' defined for model '%s' in OpenERP database '%s'" % (external_id, obj_model, self.database))
-        return None        
+    def create_external_id(self, obj_model, external_id, res_id, module=None):
+        """Creates a external id in ir.model.data"""
+        vals = {'name': external_id,
+                'model': obj_model,
+                'module': module,
+                'res_id': res_id}
+        self.execute('ir.model.data','create',vals)
+        return True
+
+    def get_uom_id(self, name, uoms={}):
+        if name not in uoms:
+            print "%s not in uoms" % name
+            uom_id = self.execute('product.uom','search',[('name','=',name)])
+            if uom_id:
+                uoms[name] = uom_id[0]
+            else:
+                logging.warning("Unit of Measure ('%s') not found"%name)
+                return False
+        return uoms[name]        
 
 
 class OGDParser():
@@ -103,18 +121,18 @@ class OGDParser():
         if not os.path.isfile(config_file):
             logging.error("No such file '%s'" % config_file)
 
-        config = ConfigParser.ConfigParser()
-        config.read(config_file)
+        self.config = ConfigParser.ConfigParser()
+        self.config.read(config_file)
 
         try:
-            self.oerp_host = config.get(self.args.env, 'openerp_host')
-            self.oerp_port = config.get(self.args.env, 'openerp_port')
-            self.oerp_database = config.get(self.args.env, 'openerp_database')
-            self.oerp_username = config.get(self.args.env, 'openerp_username')
-            self.oerp_password = config.get(self.args.env, 'openerp_password')
+            self.oerp_host = self.config.get(self.args.env, 'openerp_host')
+            self.oerp_port = self.config.get(self.args.env, 'openerp_port')
+            self.oerp_database = self.config.get(self.args.env, 'openerp_database')
+            self.oerp_username = self.config.get(self.args.env, 'openerp_username')
+            self.oerp_password = self.config.get(self.args.env, 'openerp_password')
 
-            self.drive_email = config.get(self.args.env, 'drive_email')
-            self.drive_password = config.get(self.args.env, 'drive_password')
+            self.drive_email = self.config.get(self.args.env, 'drive_email')
+            self.drive_password = self.config.get(self.args.env, 'drive_password')
 
         except Exception, e:
             logging.error("Config file error (%s)" % e)        
@@ -155,20 +173,17 @@ class OGDParser():
                 for ws_data in ss_info[1]:
                     print "    %s: %s" % (ws_data[0], ws_data[1])
                 print "\n"
+
         #Load resources otherwise
         else:
             for res in self.args.resources:
-                try:
-                    res_data = config.get(self.args.env, res).split(',')
-                    #Retreive spreadhseet and worksheet of resource to import
-                    spreadhseet_id = res_data[0]
-                    worksheet_id = res_data[1] if len(res_data) > 1 else None
-                    rows = self.google_drive.getRows(spreadhseet_id, worksheet_id)
+                res_data = self.config.get(self.args.env, res).split(',')
+                #Retreive spreadhseet and worksheet of resource to import
+                spreadhseet_id = res_data[0]
+                worksheet_id = res_data[1] if len(res_data) > 1 else None
+                rows = self.google_drive.getRows(spreadhseet_id, worksheet_id)
 
-                    self.parse_resource(res, rows)
-                    
-                except Exception, e:
-                    logging.error(e)
+                self.parse_resource(res, rows)
 
     def parse_resource(self, resource, rows):
         """Function hook to be overriden by subclass to handle resource data and import"""
