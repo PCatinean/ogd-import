@@ -90,7 +90,8 @@ class OpenERP():
         vals = {'name': external_id,
                 'model': obj_model,
                 'module': module,
-                'res_id': res_id}
+                'res_id': res_id,
+                'noupdate': 1}
         self.execute('ir.model.data','create',vals)
         return True
 
@@ -188,11 +189,11 @@ class OGDParser():
         #Load resources otherwise
         else:
             for res in self.args.resources:
-                res_data = self.config.get(self.args.env, res).split(',')
+                res_data = [x.strip() for x in self.config.get(self.args.env, res).split(',')]
                 #Retreive spreadhseet and worksheet of resource to import
-                spreadhseet_id = res_data[0]
+                spreadsheet_id = res_data[0]
                 worksheet_id = res_data[1] if len(res_data) > 1 else None
-                rows = self.google_drive.getRows(spreadhseet_id, worksheet_id)
+                rows = self.google_drive.getRows(spreadsheet_id, worksheet_id)
 
                 self.parse_resource(res, rows)
 

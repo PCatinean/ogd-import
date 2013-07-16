@@ -6,17 +6,43 @@ import base64
 
 class CustomImport(ogdimport.OGDParser):
 
-
     PREFIXES = {
         'product.category': 'aluart_product_category_',
         'product.product': 'aluart_product_',
         'res.partner': 'aluart_company_',
     }
 
+    def get_dimension_id(self, prefix):
+        #Get dimension database id by using unique prefix field
+        dim_id = self.open_erp.execute('product.variant.dimension.type','search',[('prefix','=',prefix)])
+        return dim_id[0] if dim_id else False  
+
+    def get_template_id(self, prefix):
+        dim_id = self.open_erp.execute('product.template','search',[('prefix','=',prefix)])
+        return dim_id[0] if dim_id else False    
+
+    def get_option_ids(self, codes):
+        option_ids = self.open_erp.execute('product.variant.dimension.option','search',[('code','in',codes)])
+        return option_ids
+
+    def import_dependencies(self, template_id,dependencies,vals):
+        value_ids = self.open_erp.execute('product.variant.dimension.value','search',[('product_tmpl_id','=',template_id)])
+        template_values = self.open_erp.execute('product.variant.dimension.value','read',value_ids,['option_id'])
+        template_options = {value['option_id'][0]: value['id'] for value in template_values}
+        for option in template_options:
+            #Loop through template options (that have value mapping)
+            if option in dependencies:
+                #If the option is in the dependency tree from the drive document
+                dep_type = vals['prefix'] if vals['prefix'] in dependencies[option] else 'default'
+                dep_dict = {'dependency_ids': [(4, template_options[option_id]) for option_id in dependencies[option][dep_type] if option_id in template_options]}  
+                self.open_erp.execute('product.variant.dimension.value','write',template_options[option],dep_dict)                      
+                logging.info("Updated dependency for template '%s'"%vals['name']) 
+        return True                    
+
     def import_categories(self, model, resource, rows, prefix=''):
 
         for row in rows:
-            res_id = self.open_erp.execute.get_res_id(model,'%s' % (self.PREFIXES[model]+row['externalid']))
+            res_id = self.open_erp.get_res_id(model,'%s' % (self.PREFIXES[model]+row['externalid']))
 
             #Prepare values for writing to DB
             vals = {'name': row['namede'], 'parent_id': 1}
@@ -29,19 +55,19 @@ class CustomImport(ogdimport.OGDParser):
             if res_id:
                 if 'all' in self.args.update or resource in self.args.update:
                     self.open_erp.execute('product.category','write',res_id,vals)
-                    logging.info("Updated product category %s"%row['namede'])
+                    logging.info("Updated product category %s" % row['namede'])
                 else:
-                    logging.warning("Category already imported in database '%s'"%row['namede'])
+                    logging.warning("Category already imported in database '%s'" % row['namede'])
 
             else:
                 #Create a new category if there is none with the specified external_id
                 categ_id = self.open_erp.execute(model,'create',vals)
                 self.open_erp.create_external_id('product.category', self.PREFIXES[model]+row['externalid'], categ_id, 'aluart')
 
-                logging.info("Created new product category '%s'"%row['namede'])
+                logging.info("Created new product category '%s'" % row['namede'])
 
                 #Add translations
-                #logging().info("Adding translations...\n")
+                #logging.info("Adding translations...\n")
                 #self.open_erp('product.category','write',categ_id,{'name': row['namede']},{'lang': 'de_DE'})
                 #self.open_erp('product.category','write',categ_id,{'name': row['nameit']},{'lang': 'it_IT'}) 
                 #self.open_erp('product.category','write',categ_id,{'name': row['namees']},{'lang': 'es_ES'}) 
@@ -114,7 +140,7 @@ class CustomImport(ogdimport.OGDParser):
                 vals.update({
                         'name': row['contactname'],
                         'parent_id': PARTNER_IDS[partner_sequence[0]],
-                        'contact_title': get_title_id(row['contacttitle']) if row['contacttitle'] else '',
+                        'title': get_title_id(row['contacttitle']) if row['contacttitle'] else '',
                     })
 
             else:
@@ -193,7 +219,7 @@ class CustomImport(ogdimport.OGDParser):
             inventory_lines = []
             stock_location_id = self.open_erp.get_res_id('stock.location','stock_location_stock')
             for product in product_ids:
-                uom_id = self.open_erp.execute('product.product','read', res_id,['uom_id'])['uom_id'][0]    
+                uom_id = self.open_erp.execute('product.product','read', product,['uom_id'])['uom_id'][0]    
                 inventory_lines.append((0, 0, {'location_id': stock_location_id,
                                                'product_id': product,
                                                'product_qty': qty,
@@ -319,34 +345,6 @@ class CustomImport(ogdimport.OGDParser):
 
     def import_dimensions(self, resource, rows):
 
-
-        def get_dimension_id(prefix):
-            #Get dimension database id by using unique prefix field
-            dim_id = self.open_erp.execute('product.variant.dimension.type','search',[('prefix','=',prefix)])
-            return dim_id[0] if dim_id else False  
-
-        def get_template_id(prefix):
-            dim_id = self.open_erp.execute('product.template','search',[('prefix','=',prefix)])
-            return dim_id[0] if dim_id else False    
-
-        def get_option_ids(codes):
-            option_ids = self.open_erp.execute('product.variant.dimension.option','search',[('code','in',codes)])
-            return option_ids
-
-        def import_dependencies(template_id,dependencies,vals):
-            value_ids = self.open_erp.execute('product.variant.dimension.value','search',[('product_tmpl_id','=',template_id)])
-            template_values = self.open_erp.execute('product.variant.dimension.value','read',value_ids,['option_id'])
-            template_options = {value['option_id'][0]: value['id'] for value in template_values}
-            for option in template_options:
-                #Loop through template options (that have value mapping)
-                if option in dependencies:
-                    #If the option is in the dependency tree from the drive document
-                    dep_type = vals['prefix'] if vals['prefix'] in dependencies[option] else 'default'
-                    dep_dict = {'dependency_ids': [(4, template_options[option_id]) for option_id in dependencies[option][dep_type] if option_id in template_options]}  
-                    self.open_erp.execute('product.variant.dimension.value','write',template_options[option],dep_dict)                      
-                    logging().info("Updated dependency for template '%s'"%vals['name']) 
-            return True                
-
         dim_id = 0
         for row in rows:
             #Add a dimension type if needed
@@ -356,7 +354,7 @@ class CustomImport(ogdimport.OGDParser):
                 if not row['sequence']:
                     logging.warning("There is no sequence set for option %s" % row['option'])
                 
-                res_id = get_dimension_id(row['prefix'])
+                res_id = self.get_dimension_id(row['prefix'])
 
                 vals = {'name': row['option'],
                         'description': row['option'],
@@ -414,14 +412,16 @@ class CustomImport(ogdimport.OGDParser):
                     res_id = self.open_erp.execute('product.variant.dimension.option', 'create', vals)
                     logging.info("Created new option '%s'" % row['label']) 
 
-    def import_templates(resource, rows, prefix=None):
+    def import_templates(self, resource, rows, prefix=None):
 
         options = {}
         dependencies = {}
 
-        #Get options to templates mapping
+        #Get data from config file to switch worksheet as it is dependent on another one and needs data from both
+        spreadsheet_data = [x.strip() for x in self.config.get(self.args.env, 'dimensions').split(',')]
+        dim_rows = self.google_drive.getRows(spreadsheet_data[0])
 
-        for row in rows:
+        for row in dim_rows:
 
             if row['option']:
 
@@ -430,7 +430,7 @@ class CustomImport(ogdimport.OGDParser):
                 if not row['sequence']:
                     logging.warning("There is no sequence set for option %s" % row['option'])
                 
-                dim_id = get_dimension_id(row['prefix'])
+                dim_id = self.get_dimension_id(row['prefix'])
                 prefix = row['prefix'].upper()
                 
                 if not dim_id:
@@ -459,20 +459,16 @@ class CustomImport(ogdimport.OGDParser):
                     default_options = row['defaultdependentoptions']
                     option_ids = []
                     if default_options:
-                        option_ids = self.open_erp.get_option_ids(default_options.split(','))
+                        option_ids = self.get_option_ids(default_options.split(','))
                     dependencies[res_id] = {'default': option_ids}
 
                 for product_type in row:
                     #Really messy workaround because there is no sorting by column in gdata.SpreadSheetService
                     if len(product_type) <= 3:                    
                         if row[product_type]:
-                            option_ids = self.open_erp.get_option_ids(row[product_type].split(','))
+                            option_ids = self.get_option_ids(row[product_type].split(','))
                             dependencies[res_id][product_type.upper()] = option_ids
         
-
-        #Import templates
-        worksheet_id = feed.entry[1].id.rsplit('/',1)[1]
-        rows = gd_client.GetListFeed(spreadsheet_id, worksheet_id).entry
 
         for row in rows:
 
@@ -503,9 +499,9 @@ class CustomImport(ogdimport.OGDParser):
                     'dimension_type_ids': dimension_type_ids,
                     'value_ids': value_ids}
 
-            res_id = get_template_id(row['prefix'])
+            res_id = self.get_template_id(row['prefix'])
             if res_id:
-                if 'all' in self.args.update or resource in args.update:
+                if 'all' in self.args.update or resource in self.args.update:
                     #Remove active dependencies
                     value_ids = self.open_erp.execute('product.variant.dimension.value','search',[('product_tmpl_id','=',res_id)])
                     for val in value_ids:
@@ -513,14 +509,14 @@ class CustomImport(ogdimport.OGDParser):
                         reset_dep = [(3, dep_id) for dep_id in option_dependencies['dependency_ids']]
                         self.open_erp.execute('product.variant.dimension.value','write',val,{"dependency_ids": reset_dep})
 
-                    import_dependencies(res_id,dependencies,vals)
+                    self.import_dependencies(res_id,dependencies,vals)
                 else:
                     logging.warning("Template already imported in database '%s'" % row['type'])
 
             else:
                 res_id = self.open_erp.execute('product.template','create',vals)
-                logging().info("Created new template '%s'"%row['type']) 
-                import_dependencies(res_id,dependencies,vals)                                
+                logging.info("Created new template '%s'" % row['type']) 
+                self.import_dependencies(res_id,dependencies,vals)       
 
     def parse_resource(self, resource, rows):
         
@@ -532,6 +528,8 @@ class CustomImport(ogdimport.OGDParser):
             self.import_partners('res.partner', resource, rows)
         elif resource == 'dimensions':
             self.import_dimensions(resource, rows)
+        elif resource == 'templates':
+            self.import_templates(resource, rows)
 
 custom_import = CustomImport()
 
