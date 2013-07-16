@@ -80,6 +80,11 @@ class OpenERP():
             return res_dict['res_id'] if res_dict else False
         return False
 
+    def get_option_id(self, dimension_id,label,code):
+        #Get option database id by using unqieu code field
+        option_id = self.execute('product.variant.dimension.option','search',[('code','=',code),('name','=',label),('dimension_id','=',dimension_id)])
+        return option_id[0] if option_id else False          
+
     def create_external_id(self, obj_model, external_id, res_id, module=None):
         """Creates a external id in ir.model.data"""
         vals = {'name': external_id,
@@ -90,15 +95,20 @@ class OpenERP():
         return True
 
     def get_uom_id(self, name, uoms={}):
+        """Returns the unit of measure id by using the same as search cryteria"""
         if name not in uoms:
-            print "%s not in uoms" % name
             uom_id = self.execute('product.uom','search',[('name','=',name)])
             if uom_id:
                 uoms[name] = uom_id[0]
             else:
                 logging.warning("Unit of Measure ('%s') not found"%name)
                 return False
-        return uoms[name]        
+        return uoms[name]   
+
+    def get_country_id(self, country_code):
+        """Returns the Country ID by using the country code (e.g 'de_DE','en_EN' etc)"""
+        country_id = self.execute('res.country','search',[('code','=',country_code)])
+        return country_id[0] if country_id else False             
 
 
 class OGDParser():
@@ -114,6 +124,7 @@ class OGDParser():
         self.parser.add_argument("-e","--env", required=True, help="OpenERP environment")
         self.parser.add_argument("-m","--magento", action="store_true", help="Magento fields included")
         self.parser.add_argument("-u","--update", nargs="+", default=[], help="Update resources"),
+        self.parser.add_argument("-i","--update-inventory", action="store_true", help="Update products inventory"),
 
         self.args = self.parser.parse_args()
 
