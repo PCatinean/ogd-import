@@ -5,46 +5,80 @@ import logging
 import ogd_logging 
 import gdata.spreadsheet.service
 import gdata.service
+import gdata.docs.client
+import gdata.docs.data
 import xmlrpclib
 
 class GoogleSpreadsheet():
     ''' An iterable google spreadsheet object.  Each row is a dictionary with an entry for each field, keyed by the header'''
     
     def __init__(self, drive_email, drive_password):
-        gd_client = gdata.spreadsheet.service.SpreadsheetsService()
-        gd_client.email = drive_email
-        gd_client.password = drive_password
-        gd_client.ProgrammaticLogin()
+
+        self.email = drive_email
+        self.password = drive_password
+
+        ss_client = gdata.spreadsheet.service.SpreadsheetsService()
+        ss_client.email = drive_email
+        ss_client.password = drive_password
+        ss_client.ProgrammaticLogin()
         
-        self.gd_client = gd_client
-        
+        self.ss_client = ss_client
+
+
+    def newSpreadsheet(self, title):
+        "Returns the id of the document when created"
+
+        if self.searchSpreadsheet(title):
+            logging.error("There is already a spreadsheet with the title '%s'" % title)
+
+        #Preform docs login
+        self.docs_client = gdata.docs.client.DocsClient()
+        self.docs_client.client_login(self.email, self.password, source='ogd', service='writely')
+
+        #Create document
+        local_resource = gdata.docs.data.Resource(title=title,type='spreadsheet')
+        gdocs_resource = self.docs_client.post(entry=local_resource, uri='https://docs.google.com/feeds/default/private/full/')
+
+        spreadsheets = self.searchSpreadsheet(title)
+        import pdb;pdb.set_trace()
+        return spreadsheets[title]
+
+    def searchSpreadsheet(self,doc_name):
+        "Searches for a spreadsheet by name and returns a dictionary of results"
+        q = gdata.spreadsheet.service.DocumentQuery()
+        q['title'] = doc_name
+        q['title-exact'] = 'true'
+        feed = self.ss_client.GetSpreadsheetsFeed(query=q)
+        spreadsheets = {entry.title.text: entry.id.text.rsplit('/',1)[1] for entry in feed.entry}
+        return spreadsheets
+            
     def formRows(self, ListFeed):
         rows = []
         for entry in ListFeed.entry:
             d = {}
             for key in entry.custom.keys():
-                d[key] = entry.custom[key].text
+                d[key] = entry.custom[key].text or ''
             rows.append(d)
         return rows
 
     def getRows(self, spreadsheet_id, worksheet_id=None):
         if worksheet_id:
-            rows = self.gd_client.GetListFeed(spreadsheet_id, worksheet_id)
+            rows = self.ss_client.GetListFeed(spreadsheet_id, worksheet_id)
         else:
-            rows = self.gd_client.GetListFeed(spreadsheet_id)
+            rows = self.ss_client.GetListFeed(spreadsheet_id)
         return self.formRows(rows)
     
     def listSpreadsheets(self, query=None):
         "Return a dictionary with tuples representing SpreadSheet names, their ids and child worksheet ids and names"
         spreadsheet_data = {}       
-        feed = self.gd_client.GetSpreadsheetsFeed(query).entry
+        feed = self.ss_client.GetSpreadsheetsFeed(query).entry
         for spreadsheet in feed:
             spreadsheet_id = spreadsheet.id.text.rsplit('/',1)[1]
             spreadsheet_name = spreadsheet.title.text
 
             spreadsheet_data[spreadsheet_name] = (spreadsheet_id, [])
 
-            worksheets = self.gd_client.GetWorksheetsFeed(spreadsheet_id).entry
+            worksheets = self.ss_client.GetWorksheetsFeed(spreadsheet_id).entry
 
             for worksheet in worksheets:
                 worksheet_id = worksheet.id.text.rsplit('/',1)[1]
@@ -73,7 +107,17 @@ class OpenERP():
     def get_res_id(self, obj_model, external_id):
         """Verifies if there is a resource in the database using the external_id provided and returns the database_id"""
 
-        domain = [('name','=',external_id),('model','=',obj_model)]
+        domain = [('model','=',obj_model)]
+
+        external_data = external_id.split('.')
+
+        if len(external_data) > 2:
+            logging.warning("Could not unpack external_id, too many values")
+        elif len(external_data) == 2:
+            domain.extend([('module','=',external_data[0]),('name','=',external_data[1])])
+        else:
+            domain.append(('name','=',external_id))
+
         data_id = self.execute('ir.model.data','search',domain)
         if data_id:
             res_dict = self.execute('ir.model.data','read',data_id[0],['res_id'])
@@ -81,7 +125,7 @@ class OpenERP():
         return False
 
     def get_option_id(self, dimension_id,label,code):
-        #Get option database id by using unqieu code field
+        #Get option database id by using unique code field
         option_id = self.execute('product.variant.dimension.option','search',[('code','=',code),('name','=',label),('dimension_id','=',dimension_id)])
         return option_id[0] if option_id else False          
 
@@ -116,6 +160,9 @@ class OGDParser():
 
     def __init__(self):
         #Parse CLI arguments
+
+        actions = ['import','export']
+
         self.parser = argparse.ArgumentParser()
         group = self.parser.add_mutually_exclusive_group(required=True)
 
@@ -123,9 +170,9 @@ class OGDParser():
         group.add_argument("-r","--resources", nargs="+", help="Resources to import")
 
         self.parser.add_argument("-e","--env", required=True, help="OpenERP environment")
-        self.parser.add_argument("-m","--magento", action="store_true", help="Magento fields included")
-        self.parser.add_argument("-u","--update", nargs="+", default=[], help="Update resources"),
-        self.parser.add_argument("-i","--update-inventory", action="store_true", help="Update products inventory"),
+        #self.parser.add_argument("-a","--action", choices=actions, help="Action type [Default: import]")
+        self.parser.add_argument("-u","--update", nargs="+", default=[], help="Update resources")
+        self.parser.add_argument("-i","--update-inventory", action="store_true", help="Update products inventory")
 
         self.args = self.parser.parse_args()
 

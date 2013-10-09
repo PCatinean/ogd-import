@@ -36,7 +36,7 @@ class CustomImport(ogdimport.OGDParser):
                 dep_type = vals['prefix'] if vals['prefix'] in dependencies[option] else 'default'
                 dep_dict = {'dependency_ids': [(4, template_options[option_id]) for option_id in dependencies[option][dep_type] if option_id in template_options]}  
                 self.open_erp.execute('product.variant.dimension.value','write',template_options[option],dep_dict)                      
-                logging.info("Updated dependency for template '%s'"%vals['name']) 
+        logging.info("Updated dependencies for template '%s'" % vals['name']) 
         return True                    
 
     def import_categories(self, model, resource, rows, prefix=''):
@@ -134,6 +134,7 @@ class CustomImport(ogdimport.OGDParser):
                         'fax': row['fax'] or '',
                         'phone': row['phone'] or '',
                         'use_parent_address': 1,
+                        'lang': 'de_DE',
                     }
                     
             elif partner_type == 'contact' and row['contactname']:
@@ -267,6 +268,7 @@ class CustomImport(ogdimport.OGDParser):
             external_id = self.PREFIXES[model] + row['reference']
             res_id = self.open_erp.get_res_id(model,'%s' % (external_id))
             procurement_method = 'make_to_stock' if row['supplymethod'] == 'buy' else 'make_to_order'
+            product_type = 'service' if row['productcategoryexternalid'] == '9990' else 'product'
             uom_id = self.open_erp.get_uom_id(row['uom'])
 
             if not uom_id:
@@ -283,7 +285,9 @@ class CustomImport(ogdimport.OGDParser):
             get_categ_id(self.PREFIXES['product.category']+row['productcategoryexternalid'])
 
             vals = {'name': row['nameen'],
-                    'type': 'product',
+                    'type': product_type,
+                    'property_account_income': False,
+                    'property_account_expense': False,
                     'procure_method': procurement_method,
                     'purchase_ok': 1 if procurement_method == 'make_to_stock' else 0,
                     'categ_id': get_categ_id(self.PREFIXES['product.category']+row['productcategoryexternalid']) or 1,
@@ -307,6 +311,7 @@ class CustomImport(ogdimport.OGDParser):
                     if seller_ids:
                         self.open_erp.execute('product.supplierinfo','unlink',seller_ids)
 
+                    import pdb;pdb.set_trace()
                     self.open_erp.execute('product.product','write',res_id,vals)
                     logging.info("Updated product [%s] %s" % (row['reference'], row['nameen']) )
                     update_translations(row, res_id)  
@@ -330,7 +335,7 @@ class CustomImport(ogdimport.OGDParser):
                 logging.info("Added product [%s] %s (%d images)" % (row['reference'], row['nameen'], 1 if vals['image_medium'] else 0))
 
             #Add product ids for inventory updated if requested
-            if self.args.update_inventory and vals['procure_method'] == 'make_to_stock':
+            if self.args.update_inventory and vals['procure_method'] == 'make_to_stock' and product_type == 'product':
                 product_inventory_ids.append(res_id)
         
         if self.args.update_inventory:
@@ -360,7 +365,7 @@ class CustomImport(ogdimport.OGDParser):
                         'description': row['option'],
                         'prefix': row['prefix'],
                         'sequence': row['sequence'] or 0,
-                        'depends_on': get_dimension_id(row['dependson']) if row['dependson'] else '',
+                        'depends_on': self.get_dimension_id(row['dependson']) if row['dependson'] else '',
                     }   
 
                 translation = {'description': row['optionde']}    
@@ -417,6 +422,12 @@ class CustomImport(ogdimport.OGDParser):
         options = {}
         dependencies = {}
 
+        sale_tax_id = 2 #self.open_erp.get_res_id('account.tax.template','vat_80')
+        purchase_tax_id = 1 #self.open_erp.get_res_id('account.tax.template','vat_80_purchase')
+
+        if not sale_tax_id or not purchase_tax_id:
+            logging.error("The id for sale tax or purchase tax could not be retreived!")
+
         #Get data from config file to switch worksheet as it is dependent on another one and needs data from both
         spreadsheet_data = [x.strip() for x in self.config.get(self.args.env, 'dimensions').split(',')]
         dim_rows = self.google_drive.getRows(spreadsheet_data[0])
@@ -471,7 +482,6 @@ class CustomImport(ogdimport.OGDParser):
         
 
         for row in rows:
-
             tmpl_prefix = row['prefix'].upper()
             value_ids = []
             dimension_type_ids = []
@@ -487,16 +497,22 @@ class CustomImport(ogdimport.OGDParser):
                             value_ids.append( (0, 0, {'option_id': val}) )
                         if row['type'] == "Standard Mast":
                             pass
-                            #import pdb;pdb.set_trace()
                     elif category == 'N/A':
                         pass
                     else:
                         logging.warning("There is no such compatibility category '%s'"%category)
 
+            categ_id = self.open_erp.get_res_id('product.category', self.PREFIXES['product.category'] + row['productcategory'])
+
             vals = {'name': row['type'],
                     'prefix': row['prefix'].upper(),
+                    #'taxes_id': [(4, sale_tax_id)],
+                    #'supplier_taxes_id': [(4, purchase_tax_id)],
                     'is_multi_variants': True,
                     'dimension_type_ids': dimension_type_ids,
+                    'type': 'product',
+                    'procure_method': 'make_to_order',
+                    'categ_id': categ_id,
                     'value_ids': value_ids}
 
             res_id = self.get_template_id(row['prefix'])
@@ -509,6 +525,12 @@ class CustomImport(ogdimport.OGDParser):
                         reset_dep = [(3, dep_id) for dep_id in option_dependencies['dependency_ids']]
                         self.open_erp.execute('product.variant.dimension.value','write',val,{"dependency_ids": reset_dep})
 
+                    #Remove all existing dependencies before updating
+                    self.open_erp.execute('product.template','write',res_id,{'value_ids': [(5, 0)]})
+                    
+                    self.open_erp.execute('product.template','write',res_id, vals)
+                    logging.info("Updated product template [%s]" % vals['name'])
+
                     self.import_dependencies(res_id,dependencies,vals)
                 else:
                     logging.warning("Template already imported in database '%s'" % row['type'])
@@ -518,8 +540,48 @@ class CustomImport(ogdimport.OGDParser):
                 logging.info("Created new template '%s'" % row['type']) 
                 self.import_dependencies(res_id,dependencies,vals)       
 
+    def import_pricelists(self, model, resource, rows):
+
+        for row in rows:
+
+            product_ext_id = self.PREFIXES[model] + row['articlereference']
+
+            product_id = self.open_erp.get_res_id(model, product_ext_id)
+
+            if not product_id:
+                print row['articlereference'] + "\n"
+                #logging.warning("There is no such product with external_id [%s]" % product_ext_id)
+                continue
+
+            vals = {
+                'list_price': row['eura'],
+                'list_price_eur_b': row['eurb'],
+                'list_price_eur_c': row['eurc'],
+                'list_price_chf_a': row['chfa'],
+                'list_price_chf_b': row['chfb'],
+                'list_price_chf_c': row['chfc'],
+            }
+
+            self.open_erp.execute(model, 'write', product_id, vals)
+
+            #logging.info('Updated prices for product with external id [%s]' % product_ext_id)
+
+    def translate_account_types(self, model, resource, rows):
+
+        for row in rows:
+            res_id = self.open_erp.get_res_id(model, row['id'])
+
+            if not res_id:
+                logging.info("No such account type with external_id [%s]" % row['id'])
+
+            vals = {'name': row['namede']}
+
+            self.open_erp.execute(model,'write', res_id, vals, {'lang': 'de_DE'} )
+
+            logging.info("Updated translation for account type [%s]" % row['name'])
+
     def parse_resource(self, resource, rows):
-        
+   
         if resource == 'products':
             self.import_products('product.product', resource, rows, prefix='aluart_product_')
         elif resource == 'categories':
@@ -530,7 +592,10 @@ class CustomImport(ogdimport.OGDParser):
             self.import_dimensions(resource, rows)
         elif resource == 'templates':
             self.import_templates(resource, rows)
+        elif resource == 'pricelists':
+            self.import_pricelists('product.product', resource, rows)
+        elif resource == 'account_types':
+            self.translate_account_types('account.account.type', resource, rows)
 
 custom_import = CustomImport()
-
 custom_import.parse_arguments()
