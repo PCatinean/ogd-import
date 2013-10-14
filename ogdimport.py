@@ -40,7 +40,6 @@ class GoogleSpreadsheet():
         gdocs_resource = self.docs_client.post(entry=local_resource, uri='https://docs.google.com/feeds/default/private/full/')
 
         spreadsheets = self.searchSpreadsheet(title)
-        import pdb;pdb.set_trace()
         return spreadsheets[title]
 
     def searchSpreadsheet(self,doc_name):
@@ -51,6 +50,10 @@ class GoogleSpreadsheet():
         feed = self.ss_client.GetSpreadsheetsFeed(query=q)
         spreadsheets = {entry.title.text: entry.id.text.rsplit('/',1)[1] for entry in feed.entry}
         return spreadsheets
+
+    def formatDict(self, data_dict={}):
+        "Formats the keys of a dict to match the ones used by google drive"
+        return {k.replace('_','').lower(): v or '' for k, v in data_dict.iteritems()}
             
     def formRows(self, ListFeed):
         rows = []
@@ -61,7 +64,7 @@ class GoogleSpreadsheet():
             rows.append(d)
         return rows
 
-    def getRows(self, spreadsheet_id, worksheet_id=None):
+    def getRows(self, spreadsheet_id, worksheet_id='od6'):
         if worksheet_id:
             rows = self.ss_client.GetListFeed(spreadsheet_id, worksheet_id)
         else:
@@ -245,5 +248,5 @@ class OGDParser():
                 self.parse_resource(res, rows)
 
     def parse_resource(self, resource, rows):
-        """Function hook to be overriden by subclass to handle resource data and import"""
+        """Hook method to be overriden by subclass to handle resource data and import"""
         pass
